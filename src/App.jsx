@@ -433,6 +433,8 @@ export default function LifeCommandCenter() {
   const [areaModal, setAreaModal] = useState(null);
   const [areaForm, setAreaForm] = useState({ name: "", color: "", emoji: "" });
   const saveTimeout = useRef(null);
+  const fileInputRef = useRef(null);
+  const [importMsg, setImportMsg] = useState(null);
 
   const loadData = useCallback(() => {
     try {
@@ -521,6 +523,33 @@ export default function LifeCommandCenter() {
       setData(init);
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(init)); } catch {}
     }
+  };
+
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `life-command-center-backup-${today()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const imported = JSON.parse(ev.target.result);
+        if (!imported.areas || !imported.habits) { setImportMsg("Invalid file — missing areas or habits."); return; }
+        persist(imported);
+        setImportMsg("Data restored successfully!");
+        setTimeout(() => setImportMsg(null), 3000);
+      } catch { setImportMsg("Failed to parse file."); setTimeout(() => setImportMsg(null), 3000); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
   };
 
   const upcoming = data.areas.flatMap(a => a.goals.filter(g => g.status !== "done" && g.targetDate).map(g => ({ ...g, area: a.name, color: a.color, prog: goalProgress(g) })))
@@ -853,6 +882,27 @@ export default function LifeCommandCenter() {
               style={{ flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "9px 12px", color: "#e2e8f0", fontSize: 14, outline: "none" }} />
             <button onClick={addHabit} style={{ background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Add</button>
           </div>
+        </div>
+
+        <div style={cardStyle}>
+          <h3 style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>💾 Data Backup</h3>
+          <p style={{ margin: "0 0 14px", fontSize: 12, color: "#475569" }}>Export your data as JSON to back up or transfer to another device.</p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button onClick={exportData} style={{
+              background: "rgba(16,185,129,0.1)", color: "#10b981", border: "1px solid rgba(16,185,129,0.2)",
+              borderRadius: 8, padding: "10px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+            }}>⬇ Export Data</button>
+            <button onClick={() => fileInputRef.current?.click()} style={{
+              background: "rgba(99,102,241,0.1)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.2)",
+              borderRadius: 8, padding: "10px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+            }}>⬆ Import Data</button>
+            <input ref={fileInputRef} type="file" accept=".json" onChange={importData} style={{ display: "none" }} />
+          </div>
+          {importMsg && <div style={{
+            marginTop: 10, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 500,
+            background: importMsg.includes("success") ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
+            color: importMsg.includes("success") ? "#10b981" : "#ef4444",
+          }}>{importMsg}</div>}
         </div>
 
         <div style={cardStyle}>
