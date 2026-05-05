@@ -435,6 +435,7 @@ export default function LifeCommandCenter() {
   const [quickTaskForm, setQuickTaskForm] = useState({ title: "", deadline: "", estimate: "" });
   const [showAddTask, setShowAddTask] = useState(false);
   const [timeFilter, setTimeFilter] = useState(null);
+  const [editingQuickTask, setEditingQuickTask] = useState(null);
   const saveTimeout = useRef(null);
   const fileInputRef = useRef(null);
   const [importMsg, setImportMsg] = useState(null);
@@ -531,13 +532,29 @@ export default function LifeCommandCenter() {
     persist({ ...data, quickTasks: qt });
   };
   const deleteQuickTask = (id) => persist({ ...data, quickTasks: data.quickTasks.filter(t => t.id !== id) });
+  const startEditQuickTask = (t) => {
+    setQuickTaskForm({ title: t.title, deadline: t.deadline || "", estimate: t.estimate ? String(t.estimate) : "" });
+    setEditingQuickTask(t.id);
+  };
+  const saveEditQuickTask = () => {
+    if (!quickTaskForm.title.trim()) return;
+    const qt = data.quickTasks.map(t => t.id === editingQuickTask ? {
+      ...t, title: quickTaskForm.title.trim(),
+      deadline: quickTaskForm.deadline || null,
+      estimate: quickTaskForm.estimate ? Number(quickTaskForm.estimate) : null,
+    } : t);
+    persist({ ...data, quickTasks: qt });
+    setQuickTaskForm({ title: "", deadline: "", estimate: "" });
+    setEditingQuickTask(null);
+  };
 
   // Filter & sort quick tasks: hide completed >24h ago, sort by urgency
   const visibleQuickTasks = data.quickTasks
     .filter(t => {
-      if (t.done && t.doneAt && t.doneAt < d) return false; // hide completed before today
-      if (timeFilter && t.estimate && t.estimate > timeFilter) return false;
-      if (timeFilter && !t.estimate) return false; // hide un-estimated tasks when filtering
+      if (t.done && t.doneAt && t.doneAt < d) return false;
+      const est = Number(t.estimate) || 0;
+      if (timeFilter && est > 0 && est > timeFilter) return false;
+      if (timeFilter && est === 0) return false;
       return true;
     })
     .sort((a, b) => {
@@ -706,7 +723,7 @@ export default function LifeCommandCenter() {
           )}
 
           {/* Task list */}
-          {visibleQuickTasks.length === 0 && !showAddTask && (
+          {visibleQuickTasks.length === 0 && !showAddTask && !editingQuickTask && (
             <p style={{ fontSize: 12, color: "#475569", textAlign: "center", padding: "8px 0" }}>
               {timeFilter ? "No tasks fit that time window." : "No tasks yet — tap + to add one."}
             </p>
@@ -715,6 +732,39 @@ export default function LifeCommandCenter() {
             const overdue = t.deadline && !t.done && t.deadline < d;
             const dueToday = t.deadline === d && !t.done;
             const dueSoon = t.deadline && !t.done && !overdue && !dueToday && ((new Date(t.deadline) - new Date()) / 864e5) <= 3;
+            const isEditing = editingQuickTask === t.id;
+
+            if (isEditing) return (
+              <div key={t.id} style={{ padding: 12, marginBottom: 5, borderRadius: 10, background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.15)" }}>
+                <input value={quickTaskForm.title} onChange={e => setQuickTaskForm({ ...quickTaskForm, title: e.target.value })}
+                  autoFocus onKeyDown={e => { if (e.key === "Enter") saveEditQuickTask(); if (e.key === "Escape") { setEditingQuickTask(null); setQuickTaskForm({ title: "", deadline: "", estimate: "" }); } }}
+                  style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "9px 12px", color: "#fff", fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 10, color: "#64748b", display: "block", marginBottom: 3 }}>Deadline</label>
+                    <input type="date" value={quickTaskForm.deadline} onChange={e => setQuickTaskForm({ ...quickTaskForm, deadline: e.target.value })}
+                      style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "6px 8px", color: "#fff", fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                  <div style={{ width: 80 }}>
+                    <label style={{ fontSize: 10, color: "#64748b", display: "block", marginBottom: 3 }}>Minutes</label>
+                    <input type="number" value={quickTaskForm.estimate} onChange={e => setQuickTaskForm({ ...quickTaskForm, estimate: e.target.value })}
+                      placeholder="15" min="1"
+                      style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "6px 8px", color: "#fff", fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 4 }}>
+                    <button onClick={() => { setEditingQuickTask(null); setQuickTaskForm({ title: "", deadline: "", estimate: "" }); }} style={{
+                      background: "rgba(255,255,255,0.06)", color: "#94a3b8", border: "none", borderRadius: 6,
+                      padding: "6px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    }}>✕</button>
+                    <button onClick={saveEditQuickTask} style={{
+                      background: "#6366f1", color: "#fff", border: "none", borderRadius: 6,
+                      padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    }}>Save</button>
+                  </div>
+                </div>
+              </div>
+            );
+
             return (
               <div key={t.id} style={{
                 display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", marginBottom: 5,
@@ -738,10 +788,16 @@ export default function LifeCommandCenter() {
                     {t.estimate && <span style={{ fontSize: 10, color: "#64748b" }}>{t.estimate}m</span>}
                   </div>
                 </div>
-                <button onClick={() => deleteQuickTask(t.id)} style={{
-                  background: "none", border: "none", color: "#475569", fontSize: 14,
-                  cursor: "pointer", padding: "2px 4px", flexShrink: 0,
-                }}>×</button>
+                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                  {!t.done && <button onClick={() => startEditQuickTask(t)} style={{
+                    background: "none", border: "none", color: "#64748b", fontSize: 12,
+                    cursor: "pointer", padding: "2px 4px",
+                  }}>✎</button>}
+                  <button onClick={() => deleteQuickTask(t.id)} style={{
+                    background: "none", border: "none", color: "#475569", fontSize: 14,
+                    cursor: "pointer", padding: "2px 4px",
+                  }}>×</button>
+                </div>
               </div>
             );
           })}
