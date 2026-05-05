@@ -432,6 +432,9 @@ export default function LifeCommandCenter() {
   const [editingHabitName, setEditingHabitName] = useState("");
   const [areaModal, setAreaModal] = useState(null);
   const [areaForm, setAreaForm] = useState({ name: "", color: "", emoji: "" });
+  const [quickTaskForm, setQuickTaskForm] = useState({ title: "", deadline: "", estimate: "" });
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [timeFilter, setTimeFilter] = useState(null);
   const saveTimeout = useRef(null);
   const fileInputRef = useRef(null);
   const [importMsg, setImportMsg] = useState(null);
@@ -444,14 +447,15 @@ export default function LifeCommandCenter() {
         const ids = new Set(saved.areas.map(a => a.id));
         const newA = DEFAULT_AREAS.filter(a => !ids.has(a.id));
         if (newA.length) saved.areas = [...saved.areas, ...newA];
+        if (!saved.quickTasks) saved.quickTasks = [];
         setData(saved);
       } else {
-        const init = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {} };
+        const init = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [] };
         setData(init);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(init));
       }
     } catch {
-      setData({ areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {} });
+      setData({ areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [] });
     }
     setLoading(false);
   }, []);
@@ -514,6 +518,36 @@ export default function LifeCommandCenter() {
   const renameHabit = (id) => { if (!editingHabitName.trim()) return; persist({ ...data, habits: data.habits.map(h => h.id === id ? { ...h, name: editingHabitName.trim() } : h) }); setEditingHabit(null); };
   const updateArea = (aid) => { const areas = data.areas.map(a => a.id === aid ? { ...a, name: areaForm.name||a.name, color: areaForm.color||a.color, emoji: areaForm.emoji||a.emoji } : a); persist({ ...data, areas }); setAreaModal(null); };
 
+  // Quick Tasks
+  const addQuickTask = () => {
+    if (!quickTaskForm.title.trim()) return;
+    const task = { id: uid(), title: quickTaskForm.title.trim(), deadline: quickTaskForm.deadline || null, estimate: quickTaskForm.estimate ? Number(quickTaskForm.estimate) : null, done: false, doneAt: null, createdAt: d };
+    persist({ ...data, quickTasks: [...data.quickTasks, task] });
+    setQuickTaskForm({ title: "", deadline: "", estimate: "" });
+    setShowAddTask(false);
+  };
+  const toggleQuickTask = (id) => {
+    const qt = data.quickTasks.map(t => t.id === id ? { ...t, done: !t.done, doneAt: !t.done ? d : null } : t);
+    persist({ ...data, quickTasks: qt });
+  };
+  const deleteQuickTask = (id) => persist({ ...data, quickTasks: data.quickTasks.filter(t => t.id !== id) });
+
+  // Filter & sort quick tasks: hide completed >24h ago, sort by urgency
+  const visibleQuickTasks = data.quickTasks
+    .filter(t => {
+      if (t.done && t.doneAt && t.doneAt < d) return false; // hide completed before today
+      if (timeFilter && t.estimate && t.estimate > timeFilter) return false;
+      if (timeFilter && !t.estimate) return false; // hide un-estimated tasks when filtering
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.done !== b.done) return a.done ? 1 : -1;
+      if (!a.deadline && !b.deadline) return 0;
+      if (!a.deadline) return 1;
+      if (!b.deadline) return -1;
+      return new Date(a.deadline) - new Date(b.deadline);
+    });
+
   const wk = getWeekId(d);
   const weekReview = data.weeklyReviews[wk] || { wins: ["","",""], blocker: "" };
   const setWeekReview = (u) => { const wr = { ...data.weeklyReviews }; wr[wk] = { ...weekReview, ...u }; persist({ ...data, weeklyReviews: wr }); };
@@ -523,7 +557,7 @@ export default function LifeCommandCenter() {
 
   const resetData = () => {
     if (confirm("Reset ALL data? This cannot be undone.")) {
-      const init = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {} };
+      const init = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [] };
       setData(init);
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(init)); } catch {}
     }
@@ -614,6 +648,103 @@ export default function LifeCommandCenter() {
                 style={{ flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "9px 12px", color: "#e2e8f0", fontSize: 14, outline: "none" }} />
             </div>
           ))}
+        </div>
+
+        {/* Quick Tasks */}
+        <div style={cardStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>⚡ Quick Tasks</h3>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12, color: "#6366f1", fontWeight: 600 }}>{visibleQuickTasks.filter(t => !t.done).length} open</span>
+              <button onClick={() => setShowAddTask(!showAddTask)} style={{
+                background: "rgba(99,102,241,0.15)", border: "none", color: "#818cf8",
+                borderRadius: 6, width: 24, height: 24, fontSize: 16, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>{showAddTask ? "−" : "+"}</button>
+            </div>
+          </div>
+
+          {/* Time filter */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            {[{ label: "All", val: null }, { label: "15m", val: 15 }, { label: "30m", val: 30 }, { label: "60m", val: 60 }].map(f => (
+              <button key={f.label} onClick={() => setTimeFilter(timeFilter === f.val ? null : f.val)} style={{
+                padding: "4px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                background: timeFilter === f.val ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.03)",
+                color: timeFilter === f.val ? "#818cf8" : "#64748b",
+                border: `1px solid ${timeFilter === f.val ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.05)"}`,
+              }}>{f.label}</button>
+            ))}
+          </div>
+
+          {/* Add task form */}
+          {showAddTask && (
+            <div style={{ padding: 12, marginBottom: 10, borderRadius: 10, background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.15)" }}>
+              <input value={quickTaskForm.title} onChange={e => setQuickTaskForm({ ...quickTaskForm, title: e.target.value })}
+                placeholder="What needs doing?" autoFocus
+                onKeyDown={e => e.key === "Enter" && addQuickTask()}
+                style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "9px 12px", color: "#fff", fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 10, color: "#64748b", display: "block", marginBottom: 3 }}>Deadline</label>
+                  <input type="date" value={quickTaskForm.deadline} onChange={e => setQuickTaskForm({ ...quickTaskForm, deadline: e.target.value })}
+                    style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "6px 8px", color: "#fff", fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ width: 80 }}>
+                  <label style={{ fontSize: 10, color: "#64748b", display: "block", marginBottom: 3 }}>Minutes</label>
+                  <input type="number" value={quickTaskForm.estimate} onChange={e => setQuickTaskForm({ ...quickTaskForm, estimate: e.target.value })}
+                    placeholder="15" min="1"
+                    style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "6px 8px", color: "#fff", fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-end" }}>
+                  <button onClick={addQuickTask} style={{
+                    background: "#6366f1", color: "#fff", border: "none", borderRadius: 6,
+                    padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+                  }}>Add</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Task list */}
+          {visibleQuickTasks.length === 0 && !showAddTask && (
+            <p style={{ fontSize: 12, color: "#475569", textAlign: "center", padding: "8px 0" }}>
+              {timeFilter ? "No tasks fit that time window." : "No tasks yet — tap + to add one."}
+            </p>
+          )}
+          {visibleQuickTasks.map(t => {
+            const overdue = t.deadline && !t.done && t.deadline < d;
+            const dueToday = t.deadline === d && !t.done;
+            const dueSoon = t.deadline && !t.done && !overdue && !dueToday && ((new Date(t.deadline) - new Date()) / 864e5) <= 3;
+            return (
+              <div key={t.id} style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", marginBottom: 5,
+                borderRadius: 10, background: t.done ? "rgba(16,185,129,0.05)" : overdue ? "rgba(239,68,68,0.06)" : "rgba(255,255,255,0.02)",
+                border: `1px solid ${t.done ? "rgba(16,185,129,0.15)" : overdue ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.05)"}`,
+              }}>
+                <div onClick={() => toggleQuickTask(t.id)} style={{
+                  width: 20, height: 20, borderRadius: 5, flexShrink: 0, cursor: "pointer",
+                  border: `2px solid ${t.done ? "#10b981" : overdue ? "#ef4444" : "rgba(255,255,255,0.15)"}`,
+                  background: t.done ? "#10b981" : "transparent",
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#fff",
+                }}>{t.done ? "✓" : ""}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, color: t.done ? "#64748b" : "#e2e8f0", textDecoration: t.done ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
+                  <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+                    {t.deadline && (
+                      <span style={{ fontSize: 10, fontWeight: 600, color: overdue ? "#ef4444" : dueToday ? "#f59e0b" : dueSoon ? "#f59e0b" : "#64748b" }}>
+                        {overdue ? "Overdue" : dueToday ? "Due today" : new Date(t.deadline).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </span>
+                    )}
+                    {t.estimate && <span style={{ fontSize: 10, color: "#64748b" }}>{t.estimate}m</span>}
+                  </div>
+                </div>
+                <button onClick={() => deleteQuickTask(t.id)} style={{
+                  background: "none", border: "none", color: "#475569", fontSize: 14,
+                  cursor: "pointer", padding: "2px 4px", flexShrink: 0,
+                }}>×</button>
+              </div>
+            );
+          })}
         </div>
 
         <div style={cardStyle}>
