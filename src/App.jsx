@@ -475,7 +475,11 @@ export default function LifeCommandCenter() {
   const todayRating = data.dayRatings[d] || 0;
   const overallProg = data.areas.length ? Math.round(data.areas.reduce((s, a) => s + areaProgress(a), 0) / data.areas.length) : 0;
 
+  const tomorrow = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return t.toISOString().slice(0, 10); })();
+  const tomorrowPriorities = data.priorities[tomorrow] || ["", "", ""];
+
   const setPriority = (i, v) => { const p = { ...data.priorities }; p[d] = [...(p[d] || ["","",""])]; p[d][i] = v; persist({ ...data, priorities: p }); };
+  const setTomorrowPriority = (i, v) => { const p = { ...data.priorities }; p[tomorrow] = [...(p[tomorrow] || ["","",""])]; p[tomorrow][i] = v; persist({ ...data, priorities: p }); };
   const setRating = (v) => { const r = { ...data.dayRatings }; r[d] = v; persist({ ...data, dayRatings: r }); };
   const toggleHabit = (hid) => { const l = { ...data.habitLog }; l[`${d}:${hid}`] = !l[`${d}:${hid}`]; persist({ ...data, habitLog: l }); };
   const getStreak = (hid) => { let s = 0; const dt = new Date(); while (data.habitLog[`${dt.toISOString().slice(0,10)}:${hid}`]) { s++; dt.setDate(dt.getDate()-1); } return s; };
@@ -599,7 +603,10 @@ export default function LifeCommandCenter() {
       {/* ═══ TODAY ═══ */}
       {tab === "today" && <>
         <div style={cardStyle}>
-          <h3 style={{ margin: "0 0 14px", fontSize: 13, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>🎯 Top 3 Priorities</h3>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>🎯 Today's Focus</h3>
+            {todayPriorities.some(p => p) && <span style={{ fontSize: 10, color: "#475569" }}>set last night</span>}
+          </div>
           {[0,1,2].map(i => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
               <span style={{ width: 24, height: 24, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: `rgba(99,102,241,${0.25-i*0.07})`, color: "#818cf8", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{i+1}</span>
@@ -637,6 +644,21 @@ export default function LifeCommandCenter() {
             <p style={{ margin: 0, fontSize: 12, color: "#475569" }}>How intentional were you today?</p>
           </div>
           <StarRating value={todayRating} onChange={setRating} />
+        </div>
+
+        {/* Plan Tomorrow */}
+        <div style={{ ...cardStyle, borderLeft: "3px solid rgba(99,102,241,0.3)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>🌙 Plan Tomorrow</h3>
+            <span style={{ fontSize: 10, color: "#475569" }}>{new Date(tomorrow).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
+          </div>
+          {[0,1,2].map(i => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <span style={{ width: 24, height: 24, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: `rgba(99,102,241,${0.15-i*0.04})`, color: "#6366f1", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{i+1}</span>
+              <input value={tomorrowPriorities[i]} onChange={e => setTomorrowPriority(i, e.target.value)} placeholder={`Tomorrow's priority ${i+1}…`}
+                style={{ flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "9px 12px", color: "#e2e8f0", fontSize: 14, outline: "none" }} />
+            </div>
+          ))}
         </div>
 
         {upcoming.length > 0 && <div style={cardStyle}>
