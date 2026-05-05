@@ -436,9 +436,26 @@ export default function LifeCommandCenter() {
   const [showAddTask, setShowAddTask] = useState(false);
   const [timeFilter, setTimeFilter] = useState(null);
   const [editingQuickTask, setEditingQuickTask] = useState(null);
+  const [currentDate, setCurrentDate] = useState(today());
   const saveTimeout = useRef(null);
   const fileInputRef = useRef(null);
   const [importMsg, setImportMsg] = useState(null);
+
+  // Detect date changes: check every 30s + on window focus
+  useEffect(() => {
+    const checkDate = () => {
+      const now = today();
+      setCurrentDate(prev => {
+        if (prev !== now) return now;
+        return prev;
+      });
+    };
+    const interval = setInterval(checkDate, 30000);
+    const onFocus = () => checkDate();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) checkDate(); });
+    return () => { clearInterval(interval); window.removeEventListener("focus", onFocus); };
+  }, []);
 
   const loadData = useCallback(() => {
     try {
@@ -475,7 +492,7 @@ export default function LifeCommandCenter() {
     </div>
   );
 
-  const d = today();
+  const d = currentDate;
   const todayPriorities = data.priorities[d] || ["", "", ""];
   const todayRating = data.dayRatings[d] || 0;
   const overallProg = data.areas.length ? Math.round(data.areas.reduce((s, a) => s + areaProgress(a), 0) / data.areas.length) : 0;
