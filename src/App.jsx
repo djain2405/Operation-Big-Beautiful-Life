@@ -337,7 +337,8 @@ const DEFAULT_HABITS = [
 ];
 
 const STORAGE_KEY = "life-command-center-v3";
-const today = () => new Date().toISOString().slice(0, 10);
+const localDate = (dt) => { const d = dt || new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const today = () => localDate();
 const getWeekId = (d) => { const dt = new Date(d); const j = new Date(dt.getFullYear(),0,1); return `${dt.getFullYear()}-W${String(Math.ceil(((dt-j)/864e5+j.getDay()+1)/7)).padStart(2,"0")}`; };
 const uid = () => Math.random().toString(36).slice(2, 8);
 
@@ -497,14 +498,14 @@ export default function LifeCommandCenter() {
   const todayRating = data.dayRatings[d] || 0;
   const overallProg = data.areas.length ? Math.round(data.areas.reduce((s, a) => s + areaProgress(a), 0) / data.areas.length) : 0;
 
-  const tomorrow = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return t.toISOString().slice(0, 10); })();
+  const tomorrow = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return localDate(t); })();
   const tomorrowPriorities = data.priorities[tomorrow] || ["", "", ""];
 
   const setPriority = (i, v) => { const p = { ...data.priorities }; p[d] = [...(p[d] || ["","",""])]; p[d][i] = v; persist({ ...data, priorities: p }); };
   const setTomorrowPriority = (i, v) => { const p = { ...data.priorities }; p[tomorrow] = [...(p[tomorrow] || ["","",""])]; p[tomorrow][i] = v; persist({ ...data, priorities: p }); };
   const setRating = (v) => { const r = { ...data.dayRatings }; r[d] = v; persist({ ...data, dayRatings: r }); };
   const toggleHabit = (hid) => { const l = { ...data.habitLog }; l[`${d}:${hid}`] = !l[`${d}:${hid}`]; persist({ ...data, habitLog: l }); };
-  const getStreak = (hid) => { let s = 0; const dt = new Date(); while (data.habitLog[`${dt.toISOString().slice(0,10)}:${hid}`]) { s++; dt.setDate(dt.getDate()-1); } return s; };
+  const getStreak = (hid) => { let s = 0; const dt = new Date(); while (data.habitLog[`${localDate(dt)}:${hid}`]) { s++; dt.setDate(dt.getDate()-1); } return s; };
   const habitsToday = data.habits.filter(h => data.habitLog[`${d}:${h.id}`]).length;
 
   const toggleTask = (areaId, goalId, mi, ti) => {
@@ -585,7 +586,7 @@ export default function LifeCommandCenter() {
   const wk = getWeekId(d);
   const weekReview = data.weeklyReviews[wk] || { wins: ["","",""], blocker: "" };
   const setWeekReview = (u) => { const wr = { ...data.weeklyReviews }; wr[wk] = { ...weekReview, ...u }; persist({ ...data, weeklyReviews: wr }); };
-  const last7 = Array.from({ length: 7 }, (_, i) => { const dt = new Date(); dt.setDate(dt.getDate()-i); return dt.toISOString().slice(0,10); });
+  const last7 = Array.from({ length: 7 }, (_, i) => { const dt = new Date(); dt.setDate(dt.getDate()-i); return localDate(dt); });
   const weekHabitsDone = last7.reduce((s, day) => s + data.habits.filter(h => data.habitLog[`${day}:${h.id}`]).length, 0);
   const avgRating = (() => { const r = last7.map(d2 => data.dayRatings[d2]).filter(Boolean); return r.length ? (r.reduce((a,b) => a+b, 0)/r.length).toFixed(1) : "—"; })();
 
