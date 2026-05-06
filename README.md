@@ -1,36 +1,60 @@
 # Life Command Center
 
-Your personal life operating system — track goals, milestones, tasks, daily habits, and weekly reviews across every area of your life.
+Your personal life operating system — track goals, habits, and milestones across every area of your life. Cloud synced.
 
-## Quick Start
+## Quick Start (local dev)
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
+## Cloud Sync Setup (5 minutes)
 
-## Deploy to Vercel (Free)
+### Step 1: Create a Supabase project
 
-1. Push this folder to a GitHub repo
-2. Go to [vercel.com](https://vercel.com) → New Project → Import your repo
-3. Vercel auto-detects Vite — click Deploy
-4. Your app is live at `your-project.vercel.app`
+1. Go to [supabase.com](https://supabase.com) → New Project
+2. Name it anything (e.g., "life-hq"), set a password, pick a region close to you
+3. Wait ~1 minute for it to spin up
 
-## Deploy to Netlify (Free)
+### Step 2: Create the database table
+
+1. In your Supabase dashboard → **SQL Editor**
+2. Paste the contents of `supabase-setup.sql` and click **Run**
+
+### Step 3: Get your credentials
+
+1. In Supabase → **Settings** → **API**
+2. Copy your **Project URL** (looks like `https://abc123.supabase.co`)
+3. Copy your **anon public** key (the long string)
+
+### Step 4: Add to Vercel
+
+1. In your Vercel project → **Settings** → **Environment Variables**
+2. Add:
+   - `VITE_SUPABASE_URL` = your Project URL
+   - `VITE_SUPABASE_ANON_KEY` = your anon key
+3. **Redeploy** (Settings → Deployments → redeploy latest)
+
+That's it. Your app now syncs to the cloud. Open on any device, same data.
+
+### Cross-device sync
+
+Your first device auto-generates a Sync ID. Find it in **Settings → Cloud Sync**. On a second device, paste that Sync ID and tap Sync. Both devices now share the same data.
+
+## Deploy to Vercel
 
 ```bash
-npm run build
+git add .
+git commit -m "your change"
+git push   # auto-deploys
 ```
-
-Then drag the `dist/` folder to [app.netlify.com/drop](https://app.netlify.com/drop).
 
 ## How It Works
 
-- **Today tab** — Set top 3 priorities, check off 14 daily habits (with streaks), rate your day
-- **Goals tab** — 8 life areas → 25 goals → ~60 milestones → ~250 tasks. Check tasks to auto-update progress
-- **Review tab** — Weekly stats, area breakdown, 7-day habit heatmap, wins & blockers
-- **Settings tab** — Edit areas, habits, or reset everything
+- **Today** — priorities, quick tasks, habits, day rating, plan tomorrow
+- **Goals** — 8 life areas → 25 goals → milestones → tasks (auto-calculated progress)
+- **Review** — weekly stats, area breakdown, habit heatmap, wins & blockers
+- **Settings** — edit areas, habits, backup, cloud sync, reset
 
-All data is stored in `localStorage` — it stays in your browser across sessions.
+Data syncs to Supabase (cloud) and localStorage (offline fallback).

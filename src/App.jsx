@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { supabaseEnabled, cloudLoad, cloudSave } from "./supabase";
 
 // ─── DATA ─────────────────────────────────────────────────────
 const T = (text) => ({ text, done: false });
@@ -441,6 +442,13 @@ export default function LifeCommandCenter() {
   const saveTimeout = useRef(null);
   const fileInputRef = useRef(null);
   const [importMsg, setImportMsg] = useState(null);
+  const [syncStatus, setSyncStatus] = useState(supabaseEnabled ? "loading" : "local");
+  const [userId] = useState(() => {
+    let id = localStorage.getItem("lcc-user-id");
+    if (!id) { id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("lcc-user-id", id); }
+    return id;
+  });
+  const [syncIdInput, setSyncIdInput] = useState("");
 
   // Detect date changes: check every 30s + on window focus
   useEffect(() => {
@@ -458,34 +466,46 @@ export default function LifeCommandCenter() {
     return () => { clearInterval(interval); window.removeEventListener("focus", onFocus); };
   }, []);
 
-  const loadData = useCallback(() => {
+  const loadData = useCallback(async () => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const saved = JSON.parse(raw);
-        const ids = new Set(saved.areas.map(a => a.id));
-        const newA = DEFAULT_AREAS.filter(a => !ids.has(a.id));
-        if (newA.length) saved.areas = [...saved.areas, ...newA];
-        if (!saved.quickTasks) saved.quickTasks = [];
-        setData(saved);
+      let saved = null;
+      const cloud = await cloudLoad(userId);
+      if (cloud?.data) {
+        saved = cloud.data;
+        setSyncStatus("synced");
       } else {
-        const init = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [] };
-        setData(init);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(init));
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) saved = JSON.parse(raw);
+        setSyncStatus(supabaseEnabled ? "offline" : "local");
       }
+      if (!saved) {
+        saved = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [] };
+      }
+      const ids = new Set(saved.areas.map(a => a.id));
+      const newA = DEFAULT_AREAS.filter(a => !ids.has(a.id));
+      if (newA.length) saved.areas = [...saved.areas, ...newA];
+      if (!saved.quickTasks) saved.quickTasks = [];
+      setData(saved);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+      // Push local data to cloud if cloud was empty but local had data
+      if (!cloud?.data && saved.areas.length) cloudSave(userId, saved).then(ok => { if (ok) setSyncStatus("synced"); });
     } catch {
-      setData({ areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [] });
+      const fallback = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [] };
+      setData(fallback);
     }
     setLoading(false);
-  }, []);
+  }, [userId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
   const persist = useCallback((nd) => {
     setData(nd);
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
-    saveTimeout.current = setTimeout(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nd)); } catch {} }, 400);
-  }, []);
+    saveTimeout.current = setTimeout(() => {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nd)); } catch {}
+      cloudSave(userId, nd).then(ok => setSyncStatus(ok ? "synced" : "offline"));
+    }, 400);
+  }, [userId]);
 
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0f1119", color: "#6366f1", fontFamily: "'DM Sans', sans-serif" }}>
@@ -595,6 +615,7 @@ export default function LifeCommandCenter() {
       const init = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [] };
       setData(init);
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(init)); } catch {}
+      cloudSave(userId, init);
     }
   };
 
@@ -649,8 +670,15 @@ export default function LifeCommandCenter() {
             {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
           </p>
         </div>
-        <div style={{ background: "rgba(99,102,241,0.1)", borderRadius: 12, padding: "8px 14px", fontSize: 13, color: "#6366f1", fontWeight: 600 }}>
-          {overallProg}% overall
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ background: "rgba(99,102,241,0.1)", borderRadius: 12, padding: "8px 14px", fontSize: 13, color: "#6366f1", fontWeight: 600 }}>
+            {overallProg}% overall
+          </div>
+          {supabaseEnabled && <div title={syncStatus === "synced" ? "Synced to cloud" : syncStatus === "offline" ? "Offline — will sync later" : "Syncing..."} style={{
+            width: 10, height: 10, borderRadius: 5,
+            background: syncStatus === "synced" ? "#10b981" : syncStatus === "offline" ? "#f59e0b" : "#6366f1",
+            boxShadow: `0 0 6px ${syncStatus === "synced" ? "#10b98180" : syncStatus === "offline" ? "#f59e0b80" : "#6366f180"}`,
+          }} />}
         </div>
       </div>
 
@@ -1130,6 +1158,48 @@ export default function LifeCommandCenter() {
             background: importMsg.includes("success") ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
             color: importMsg.includes("success") ? "#10b981" : "#ef4444",
           }}>{importMsg}</div>}
+        </div>
+
+        <div style={cardStyle}>
+          <h3 style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>☁️ Cloud Sync</h3>
+          {supabaseEnabled ? (<>
+            <p style={{ margin: "0 0 12px", fontSize: 12, color: "#475569" }}>
+              Status: <span style={{ color: syncStatus === "synced" ? "#10b981" : syncStatus === "offline" ? "#f59e0b" : "#6366f1", fontWeight: 600 }}>
+                {syncStatus === "synced" ? "Synced" : syncStatus === "offline" ? "Offline" : "Syncing..."}
+              </span>
+            </p>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, color: "#94a3b8", display: "block", marginBottom: 5, fontWeight: 500 }}>Your Sync ID (use this on other devices)</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input readOnly value={userId} style={{ ...inputStyle, fontSize: 12, fontFamily: "monospace" }} onClick={e => { e.target.select(); navigator.clipboard?.writeText(userId); setImportMsg("Sync ID copied!"); setTimeout(() => setImportMsg(null), 2000); }} />
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "#94a3b8", display: "block", marginBottom: 5, fontWeight: 500 }}>Sync from another device's ID</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={syncIdInput} onChange={e => setSyncIdInput(e.target.value)} placeholder="Paste Sync ID here…" style={{ ...inputStyle, fontSize: 12 }} />
+                <button onClick={async () => {
+                  if (!syncIdInput.trim()) return;
+                  const cloud = await cloudLoad(syncIdInput.trim());
+                  if (cloud?.data) {
+                    localStorage.setItem("lcc-user-id", syncIdInput.trim());
+                    persist(cloud.data);
+                    setSyncIdInput("");
+                    setImportMsg("Synced from other device!");
+                    setTimeout(() => setImportMsg(null), 3000);
+                    window.location.reload();
+                  } else {
+                    setImportMsg("No data found for that ID.");
+                    setTimeout(() => setImportMsg(null), 3000);
+                  }
+                }} style={{ background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>Sync</button>
+              </div>
+            </div>
+          </>) : (
+            <p style={{ margin: "0", fontSize: 12, color: "#475569", lineHeight: 1.6 }}>
+              Cloud sync is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY as environment variables in Vercel to enable cross-device sync.
+            </p>
+          )}
         </div>
 
         <div style={cardStyle}>
