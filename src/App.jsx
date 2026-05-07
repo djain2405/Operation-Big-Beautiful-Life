@@ -442,6 +442,8 @@ export default function LifeCommandCenter() {
   const saveTimeout = useRef(null);
   const fileInputRef = useRef(null);
   const [importMsg, setImportMsg] = useState(null);
+  const [syncStatus, setSyncStatus] = useState(supabaseEnabled ? "loading" : "local");
+  const userId = "owner";
 
   // Detect date changes: check every 30s + on window focus
   useEffect(() => {
@@ -471,16 +473,17 @@ export default function LifeCommandCenter() {
         if (raw) saved = JSON.parse(raw);
         setSyncStatus(supabaseEnabled ? "offline" : "local");
       }
-      if (saved) {
-        const ids = new Set(saved.areas.map(a => a.id));
-        const newA = DEFAULT_AREAS.filter(a => !ids.has(a.id));
-        if (newA.length) saved.areas = [...saved.areas, ...newA];
-        if (!saved.quickTasks) saved.quickTasks = [];
-        if (!saved.priorityDone) saved.priorityDone = {};
-        setData(saved);
-      } else {
+      if (!saved) {
         saved = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [], priorityDone: {} };
       }
+      const ids = new Set(saved.areas.map(a => a.id));
+      const newA = DEFAULT_AREAS.filter(a => !ids.has(a.id));
+      if (newA.length) saved.areas = [...saved.areas, ...newA];
+      if (!saved.quickTasks) saved.quickTasks = [];
+      if (!saved.priorityDone) saved.priorityDone = {};
+      setData(saved);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+      if (!cloud?.data && supabaseEnabled) cloudSave(userId, saved).then(ok => { if (ok) setSyncStatus("synced"); });
     } catch {
       const fallback = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [], priorityDone: {} };
       setData(fallback);
@@ -677,8 +680,15 @@ export default function LifeCommandCenter() {
             {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
           </p>
         </div>
-        <div style={{ background: "rgba(99,102,241,0.1)", borderRadius: 12, padding: "8px 14px", fontSize: 13, color: "#6366f1", fontWeight: 600 }}>
-          {overallProg}% overall
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ background: "rgba(99,102,241,0.1)", borderRadius: 12, padding: "8px 14px", fontSize: 13, color: "#6366f1", fontWeight: 600 }}>
+            {overallProg}% overall
+          </div>
+          {supabaseEnabled && <div title={syncStatus === "synced" ? "Synced to cloud" : "Offline"} style={{
+            width: 10, height: 10, borderRadius: 5,
+            background: syncStatus === "synced" ? "#10b981" : "#f59e0b",
+            boxShadow: `0 0 6px ${syncStatus === "synced" ? "#10b98180" : "#f59e0b80"}`,
+          }} />}
         </div>
       </div>
 
@@ -1218,6 +1228,18 @@ export default function LifeCommandCenter() {
             color: importMsg.includes("success") ? "#10b981" : "#ef4444",
           }}>{importMsg}</div>}
         </div>
+
+        {supabaseEnabled && <div style={cardStyle}>
+          <h3 style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>☁️ Cloud Sync</h3>
+          <p style={{ margin: 0, fontSize: 13, color: "#e2e8f0" }}>
+            Status: <span style={{ color: syncStatus === "synced" ? "#10b981" : "#f59e0b", fontWeight: 600 }}>
+              {syncStatus === "synced" ? "✓ Synced" : "Offline"}
+            </span>
+          </p>
+          <p style={{ margin: "8px 0 0", fontSize: 11, color: "#475569" }}>
+            Data syncs automatically to Supabase. Open on any device — same data everywhere.
+          </p>
+        </div>}
 
         <div style={cardStyle}>
           <h3 style={{ margin: "0 0 14px", fontSize: 13, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>Danger Zone</h3>
