@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { supabaseEnabled, cloudLoad, cloudSave } from "./supabase";
+import { supabaseEnabled, cloudLoad, cloudSave, cloudCleanup } from "./supabase";
 
 // ─── DATA ─────────────────────────────────────────────────────
 const T = (text) => ({ text, done: false });
@@ -443,7 +443,6 @@ export default function LifeCommandCenter() {
   const fileInputRef = useRef(null);
   const [importMsg, setImportMsg] = useState(null);
   const [syncStatus, setSyncStatus] = useState(supabaseEnabled ? "loading" : "local");
-  const userId = "owner";
 
   // Detect date changes: check every 30s + on window focus
   useEffect(() => {
@@ -462,43 +461,53 @@ export default function LifeCommandCenter() {
   }, []);
 
   const loadData = useCallback(async () => {
+    var saved = null;
+    var cloud = null;
     try {
-      let saved = null;
-      const cloud = await cloudLoad(userId);
-      if (cloud?.data) {
+      cloud = await cloudLoad();
+      if (cloud && cloud.data) {
         saved = cloud.data;
         setSyncStatus("synced");
-      } else {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        if (cloud.userId !== "owner") {
+          cloudSave(saved).then(function() { cloudCleanup(); });
+        }
+      }
+    } catch (e) { /* cloud failed, continue */ }
+    try {
+      if (!saved) {
+        var raw = localStorage.getItem(STORAGE_KEY);
         if (raw) saved = JSON.parse(raw);
-        setSyncStatus(supabaseEnabled ? "offline" : "local");
+        if (!cloud) setSyncStatus(supabaseEnabled ? "offline" : "local");
       }
       if (!saved) {
         saved = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [], priorityDone: {} };
       }
-      const ids = new Set(saved.areas.map(a => a.id));
-      const newA = DEFAULT_AREAS.filter(a => !ids.has(a.id));
-      if (newA.length) saved.areas = [...saved.areas, ...newA];
+      if (!Array.isArray(saved.areas)) saved.areas = DEFAULT_AREAS;
+      var existingIds = {};
+      saved.areas.forEach(function(a) { existingIds[a.id] = true; });
+      DEFAULT_AREAS.forEach(function(a) { if (!existingIds[a.id]) saved.areas.push(a); });
       if (!saved.quickTasks) saved.quickTasks = [];
       if (!saved.priorityDone) saved.priorityDone = {};
+      if (!saved.habits) saved.habits = DEFAULT_HABITS;
       setData(saved);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
-      if (!cloud?.data && supabaseEnabled) cloudSave(userId, saved).then(ok => { if (ok) setSyncStatus("synced"); });
-    } catch {
-      const fallback = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [], priorityDone: {} };
-      setData(fallback);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch(e) {}
+      if (supabaseEnabled && (!cloud || !cloud.data)) {
+        cloudSave(saved).then(function(ok) { if (ok) setSyncStatus("synced"); });
+      }
+    } catch (e) {
+      setData({ areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [], priorityDone: {} });
     }
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(function() { loadData(); }, [loadData]);
 
-  const persist = useCallback((nd) => {
+  const persist = useCallback(function(nd) {
     setData(nd);
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
-    saveTimeout.current = setTimeout(() => {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nd)); } catch {}
-      cloudSave(userId, nd).then(ok => setSyncStatus(ok ? "synced" : "offline"));
+    saveTimeout.current = setTimeout(function() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nd)); } catch(e) {}
+      cloudSave(nd).then(function(ok) { setSyncStatus(ok ? "synced" : "offline"); });
     }, 400);
   }, []);
 
@@ -625,7 +634,7 @@ export default function LifeCommandCenter() {
       const init = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [], priorityDone: {} };
       setData(init);
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(init)); } catch {}
-      cloudSave(userId, init);
+      cloudSave(init);
     }
   };
 
