@@ -442,13 +442,6 @@ export default function LifeCommandCenter() {
   const saveTimeout = useRef(null);
   const fileInputRef = useRef(null);
   const [importMsg, setImportMsg] = useState(null);
-  const [syncStatus, setSyncStatus] = useState(supabaseEnabled ? "loading" : "local");
-  const [userId] = useState(() => {
-    let id = localStorage.getItem("lcc-user-id");
-    if (!id) { id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("lcc-user-id", id); }
-    return id;
-  });
-  const [syncIdInput, setSyncIdInput] = useState("");
 
   // Detect date changes: check every 30s + on window focus
   useEffect(() => {
@@ -478,23 +471,22 @@ export default function LifeCommandCenter() {
         if (raw) saved = JSON.parse(raw);
         setSyncStatus(supabaseEnabled ? "offline" : "local");
       }
-      if (!saved) {
-        saved = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [] };
+      if (saved) {
+        const ids = new Set(saved.areas.map(a => a.id));
+        const newA = DEFAULT_AREAS.filter(a => !ids.has(a.id));
+        if (newA.length) saved.areas = [...saved.areas, ...newA];
+        if (!saved.quickTasks) saved.quickTasks = [];
+        if (!saved.priorityDone) saved.priorityDone = {};
+        setData(saved);
+      } else {
+        saved = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [], priorityDone: {} };
       }
-      const ids = new Set(saved.areas.map(a => a.id));
-      const newA = DEFAULT_AREAS.filter(a => !ids.has(a.id));
-      if (newA.length) saved.areas = [...saved.areas, ...newA];
-      if (!saved.quickTasks) saved.quickTasks = [];
-      setData(saved);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
-      // Push local data to cloud if cloud was empty but local had data
-      if (!cloud?.data && saved.areas.length) cloudSave(userId, saved).then(ok => { if (ok) setSyncStatus("synced"); });
     } catch {
-      const fallback = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [] };
+      const fallback = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [], priorityDone: {} };
       setData(fallback);
     }
     setLoading(false);
-  }, [userId]);
+  }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -505,7 +497,7 @@ export default function LifeCommandCenter() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nd)); } catch {}
       cloudSave(userId, nd).then(ok => setSyncStatus(ok ? "synced" : "offline"));
     }, 400);
-  }, [userId]);
+  }, []);
 
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0f1119", color: "#6366f1", fontFamily: "'DM Sans', sans-serif" }}>
@@ -515,6 +507,7 @@ export default function LifeCommandCenter() {
 
   const d = currentDate;
   const todayPriorities = data.priorities[d] || ["", "", ""];
+  const todayPriorityDone = data.priorityDone?.[d] || [false, false, false];
   const todayRating = data.dayRatings[d] || 0;
   const overallProg = data.areas.length ? Math.round(data.areas.reduce((s, a) => s + areaProgress(a), 0) / data.areas.length) : 0;
 
@@ -522,6 +515,20 @@ export default function LifeCommandCenter() {
   const tomorrowPriorities = data.priorities[tomorrow] || ["", "", ""];
 
   const setPriority = (i, v) => { const p = { ...data.priorities }; p[d] = [...(p[d] || ["","",""])]; p[d][i] = v; persist({ ...data, priorities: p }); };
+  const [celebration, setCelebration] = useState(null);
+  const togglePriorityDone = (i) => {
+    const pd = { ...data.priorityDone || {} };
+    pd[d] = [...(pd[d] || [false, false, false])];
+    pd[d][i] = !pd[d][i];
+    const newData = { ...data, priorityDone: pd };
+    persist(newData);
+    // Celebrate individual completion
+    if (pd[d][i]) setCelebration("nice");
+    // Celebrate all 3 done
+    if (pd[d].every(Boolean) && pd[d][i]) setCelebration("all");
+    if (celebration) setTimeout(() => setCelebration(null), 2500);
+  };
+  useEffect(() => { if (celebration) { const t = setTimeout(() => setCelebration(null), 2500); return () => clearTimeout(t); } }, [celebration]);
   const setTomorrowPriority = (i, v) => { const p = { ...data.priorities }; p[tomorrow] = [...(p[tomorrow] || ["","",""])]; p[tomorrow][i] = v; persist({ ...data, priorities: p }); };
   const setRating = (v) => { const r = { ...data.dayRatings }; r[d] = v; persist({ ...data, dayRatings: r }); };
   const toggleHabit = (hid) => { const l = { ...data.habitLog }; l[`${d}:${hid}`] = !l[`${d}:${hid}`]; persist({ ...data, habitLog: l }); };
@@ -612,7 +619,7 @@ export default function LifeCommandCenter() {
 
   const resetData = () => {
     if (confirm("Reset ALL data? This cannot be undone.")) {
-      const init = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [] };
+      const init = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [], priorityDone: {} };
       setData(init);
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(init)); } catch {}
       cloudSave(userId, init);
@@ -670,15 +677,8 @@ export default function LifeCommandCenter() {
             {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
           </p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ background: "rgba(99,102,241,0.1)", borderRadius: 12, padding: "8px 14px", fontSize: 13, color: "#6366f1", fontWeight: 600 }}>
-            {overallProg}% overall
-          </div>
-          {supabaseEnabled && <div title={syncStatus === "synced" ? "Synced to cloud" : syncStatus === "offline" ? "Offline — will sync later" : "Syncing..."} style={{
-            width: 10, height: 10, borderRadius: 5,
-            background: syncStatus === "synced" ? "#10b981" : syncStatus === "offline" ? "#f59e0b" : "#6366f1",
-            boxShadow: `0 0 6px ${syncStatus === "synced" ? "#10b98180" : syncStatus === "offline" ? "#f59e0b80" : "#6366f180"}`,
-          }} />}
+        <div style={{ background: "rgba(99,102,241,0.1)", borderRadius: 12, padding: "8px 14px", fontSize: 13, color: "#6366f1", fontWeight: 600 }}>
+          {overallProg}% overall
         </div>
       </div>
 
@@ -699,18 +699,77 @@ export default function LifeCommandCenter() {
 
       {/* ═══ TODAY ═══ */}
       {tab === "today" && <>
+        {/* Celebration overlay */}
+        {celebration === "all" && (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)",
+            animation: "fadeIn 0.3s ease",
+          }}>
+            <div style={{ textAlign: "center", animation: "popIn 0.4s ease" }}>
+              <div style={{ fontSize: 72, marginBottom: 16 }}>🎉</div>
+              <div style={{ fontSize: 24, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", background: "linear-gradient(135deg, #6366f1, #ec4899, #f59e0b)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: 8 }}>
+                ALL PRIORITIES DONE!
+              </div>
+              <div style={{ fontSize: 14, color: "#94a3b8" }}>You showed up for yourself today. That matters.</div>
+            </div>
+          </div>
+        )}
+        <style>{`
+          @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+          @keyframes popIn { from { transform: scale(0.5); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+          @keyframes checkPop { 0% { transform: scale(1) } 50% { transform: scale(1.3) } 100% { transform: scale(1) } }
+        `}</style>
+
         <div style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>🎯 Today's Focus</h3>
-            {todayPriorities.some(p => p) && <span style={{ fontSize: 10, color: "#475569" }}>set last night</span>}
-          </div>
-          {[0,1,2].map(i => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <span style={{ width: 24, height: 24, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: `rgba(99,102,241,${0.25-i*0.07})`, color: "#818cf8", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{i+1}</span>
-              <input value={todayPriorities[i]} onChange={e => setPriority(i, e.target.value)} placeholder={`Priority ${i+1}…`}
-                style={{ flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "9px 12px", color: "#e2e8f0", fontSize: 14, outline: "none" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {todayPriorities.some(p => p) && <span style={{ fontSize: 10, color: "#475569" }}>set last night</span>}
+              {todayPriorityDone.filter(Boolean).length > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981" }}>
+                  {todayPriorityDone.filter(Boolean).length}/3 done
+                </span>
+              )}
             </div>
-          ))}
+          </div>
+          {[0,1,2].map(i => {
+            const done = todayPriorityDone[i];
+            const hasText = todayPriorities[i]?.trim();
+            return (
+              <div key={i} style={{
+                display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
+                padding: "4px 0", borderRadius: 10, transition: "all 0.3s",
+              }}>
+                {hasText ? (
+                  <div onClick={() => togglePriorityDone(i)} style={{
+                    width: 24, height: 24, borderRadius: 8, flexShrink: 0, cursor: "pointer",
+                    border: `2px solid ${done ? "#10b981" : "rgba(99,102,241,0.4)"}`,
+                    background: done ? "#10b981" : "transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 13, color: "#fff", transition: "all 0.2s",
+                    animation: done ? "checkPop 0.3s ease" : "none",
+                  }}>{done ? "✓" : ""}</div>
+                ) : (
+                  <span style={{ width: 24, height: 24, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: `rgba(99,102,241,${0.25-i*0.07})`, color: "#818cf8", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{i+1}</span>
+                )}
+                <input value={todayPriorities[i]} onChange={e => setPriority(i, e.target.value)} placeholder={`Priority ${i+1}…`}
+                  style={{
+                    flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: 8, padding: "9px 12px", fontSize: 14, outline: "none",
+                    color: done ? "#10b981" : "#e2e8f0",
+                    textDecoration: done ? "line-through" : "none",
+                    opacity: done ? 0.7 : 1,
+                    transition: "all 0.3s",
+                  }} />
+              </div>
+            );
+          })}
+          {celebration === "nice" && (
+            <div style={{ textAlign: "center", padding: "6px 0", fontSize: 13, color: "#10b981", fontWeight: 600, animation: "fadeIn 0.3s ease" }}>
+              ✨ Nice one! Keep going.
+            </div>
+          )}
         </div>
 
         {/* Quick Tasks */}
@@ -1158,48 +1217,6 @@ export default function LifeCommandCenter() {
             background: importMsg.includes("success") ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
             color: importMsg.includes("success") ? "#10b981" : "#ef4444",
           }}>{importMsg}</div>}
-        </div>
-
-        <div style={cardStyle}>
-          <h3 style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 }}>☁️ Cloud Sync</h3>
-          {supabaseEnabled ? (<>
-            <p style={{ margin: "0 0 12px", fontSize: 12, color: "#475569" }}>
-              Status: <span style={{ color: syncStatus === "synced" ? "#10b981" : syncStatus === "offline" ? "#f59e0b" : "#6366f1", fontWeight: 600 }}>
-                {syncStatus === "synced" ? "Synced" : syncStatus === "offline" ? "Offline" : "Syncing..."}
-              </span>
-            </p>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 12, color: "#94a3b8", display: "block", marginBottom: 5, fontWeight: 500 }}>Your Sync ID (use this on other devices)</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input readOnly value={userId} style={{ ...inputStyle, fontSize: 12, fontFamily: "monospace" }} onClick={e => { e.target.select(); navigator.clipboard?.writeText(userId); setImportMsg("Sync ID copied!"); setTimeout(() => setImportMsg(null), 2000); }} />
-              </div>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: "#94a3b8", display: "block", marginBottom: 5, fontWeight: 500 }}>Sync from another device's ID</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input value={syncIdInput} onChange={e => setSyncIdInput(e.target.value)} placeholder="Paste Sync ID here…" style={{ ...inputStyle, fontSize: 12 }} />
-                <button onClick={async () => {
-                  if (!syncIdInput.trim()) return;
-                  const cloud = await cloudLoad(syncIdInput.trim());
-                  if (cloud?.data) {
-                    localStorage.setItem("lcc-user-id", syncIdInput.trim());
-                    persist(cloud.data);
-                    setSyncIdInput("");
-                    setImportMsg("Synced from other device!");
-                    setTimeout(() => setImportMsg(null), 3000);
-                    window.location.reload();
-                  } else {
-                    setImportMsg("No data found for that ID.");
-                    setTimeout(() => setImportMsg(null), 3000);
-                  }
-                }} style={{ background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>Sync</button>
-              </div>
-            </div>
-          </>) : (
-            <p style={{ margin: "0", fontSize: 12, color: "#475569", lineHeight: 1.6 }}>
-              Cloud sync is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY as environment variables in Vercel to enable cross-device sync.
-            </p>
-          )}
         </div>
 
         <div style={cardStyle}>
