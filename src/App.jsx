@@ -633,7 +633,7 @@ export default function LifeCommandCenter() {
     if (confirm("Reset ALL data? This cannot be undone.")) {
       const init = { areas: DEFAULT_AREAS, habits: DEFAULT_HABITS, habitLog: {}, priorities: {}, dayRatings: {}, weeklyReviews: {}, quickTasks: [], priorityDone: {} };
       setData(init);
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(init)); } catch {}
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(init)); } catch(e) {}
       cloudSave(init);
     }
   };
@@ -659,7 +659,7 @@ export default function LifeCommandCenter() {
         persist(imported);
         setImportMsg("Data restored successfully!");
         setTimeout(() => setImportMsg(null), 3000);
-      } catch { setImportMsg("Failed to parse file."); setTimeout(() => setImportMsg(null), 3000); }
+      } catch(e) { setImportMsg("Failed to parse file."); setTimeout(() => setImportMsg(null), 3000); }
     };
     reader.readAsText(file);
     e.target.value = "";
