@@ -443,6 +443,9 @@ export default function LifeCommandCenter() {
   const fileInputRef = useRef(null);
   const [importMsg, setImportMsg] = useState(null);
   const [syncStatus, setSyncStatus] = useState(supabaseEnabled ? "loading" : "local");
+  const [celebration, setCelebration] = useState(null);
+
+  useEffect(function() { if (celebration) { var t = setTimeout(function() { setCelebration(null); }, 2500); return function() { clearTimeout(t); }; } }, [celebration]);
 
   // Detect date changes: check every 30s + on window focus
   useEffect(() => {
@@ -527,20 +530,15 @@ export default function LifeCommandCenter() {
   const tomorrowPriorities = data.priorities[tomorrow] || ["", "", ""];
 
   const setPriority = (i, v) => { const p = { ...data.priorities }; p[d] = [...(p[d] || ["","",""])]; p[d][i] = v; persist({ ...data, priorities: p }); };
-  const [celebration, setCelebration] = useState(null);
   const togglePriorityDone = (i) => {
     const pd = { ...data.priorityDone || {} };
     pd[d] = [...(pd[d] || [false, false, false])];
     pd[d][i] = !pd[d][i];
     const newData = { ...data, priorityDone: pd };
     persist(newData);
-    // Celebrate individual completion
     if (pd[d][i]) setCelebration("nice");
-    // Celebrate all 3 done
     if (pd[d].every(Boolean) && pd[d][i]) setCelebration("all");
-    if (celebration) setTimeout(() => setCelebration(null), 2500);
   };
-  useEffect(() => { if (celebration) { const t = setTimeout(() => setCelebration(null), 2500); return () => clearTimeout(t); } }, [celebration]);
   const setTomorrowPriority = (i, v) => { const p = { ...data.priorities }; p[tomorrow] = [...(p[tomorrow] || ["","",""])]; p[tomorrow][i] = v; persist({ ...data, priorities: p }); };
   const setRating = (v) => { const r = { ...data.dayRatings }; r[d] = v; persist({ ...data, dayRatings: r }); };
   const toggleHabit = (hid) => { const l = { ...data.habitLog }; l[`${d}:${hid}`] = !l[`${d}:${hid}`]; persist({ ...data, habitLog: l }); };
